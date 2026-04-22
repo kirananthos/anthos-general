@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Find Help Near You</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- SCREEN 1: Category + Zipcode -->
+  <div id="screen-home" class="screen active">
+    <header>
+      <h1>Find Help Near You</h1>
+      <p class="subtitle">Choose what you need and enter your zip code</p>
+    </header>
+
+    <section class="categories" aria-label="Service categories">
+      <button class="category-btn" data-category="food pantry OR food bank OR soup kitchen" data-label="Food">
+        <span class="icon">🍎</span>
+        <span class="label">Food</span>
+      </button>
+      <button class="category-btn" data-category="clothing donation OR thrift store OR clothes closet" data-label="Clothing">
+        <span class="icon">👕</span>
+        <span class="label">Clothing</span>
+      </button>
+      <button class="category-btn" data-category="job training OR workforce development OR employment center" data-label="Job Help">
+        <span class="icon">💼</span>
+        <span class="label">Job Help</span>
+      </button>
+      <button class="category-btn" data-category="english classes ESL OR adult education english" data-label="English Classes">
+        <span class="icon">📚</span>
+        <span class="label">English Classes</span>
+      </button>
+      <button class="category-btn" data-category="health clinic community health center" data-label="Health">
+        <span class="icon">🏥</span>
+        <span class="label">Health</span>
+      </button>
+      <button class="category-btn" data-category="housing assistance shelter" data-label="Housing">
+        <span class="icon">🏠</span>
+        <span class="label">Housing</span>
+      </button>
+    </section>
+
+    <section class="zipcode-section">
+      <label for="zipcode-input" class="zipcode-label">Your Zip Code</label>
+      <input
+        id="zipcode-input"
+        type="tel"
+        inputmode="numeric"
+        pattern="[0-9]{5}"
+        maxlength="5"
+        placeholder="e.g. 10001"
+        autocomplete="postal-code"
+        aria-label="Enter your 5-digit zip code"
+      />
+      <p id="zipcode-error" class="error-msg hidden">Please enter a 5-digit zip code.</p>
+    </section>
+
+    <button id="search-btn" class="primary-btn" disabled>
+      Search
+    </button>
+  </div>
+
+  <!-- SCREEN 2: Results -->
+  <div id="screen-results" class="screen">
+    <header class="results-header">
+      <button id="back-btn" class="back-btn" aria-label="Go back">
+        &#8592; Back
+      </button>
+      <h2 id="results-title">Results</h2>
+    </header>
+
+    <div id="results-list" class="results-list" aria-live="polite">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+  <!-- Result card template (cloned by JS) -->
+  <template id="result-card-template">
+    <article class="result-card">
+      <h3 class="result-name"></h3>
+      <p class="result-address"></p>
+      <div class="result-actions">
+        <a class="btn-call" href="#">📞 Call</a>
+        <a class="btn-directions" href="#" target="_blank" rel="noopener">🗺 Directions</a>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
