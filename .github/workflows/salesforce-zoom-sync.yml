@@ -25,6 +25,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run sync
+        id: sync
         env:
           ZOOM_ACCOUNT_ID: ${{ secrets.ZOOM_ACCOUNT_ID }}
           ZOOM_CLIENT_ID: ${{ secrets.ZOOM_CLIENT_ID }}
@@ -34,3 +35,21 @@ jobs:
           SALESFORCE_TOKEN: ${{ secrets.SALESFORCE_TOKEN }}
           SALESFORCE_REPORT_ID: ${{ secrets.SALESFORCE_REPORT_ID }}
         run: python sync.py
+
+      - name: Notify Slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$STATUS" = "success" ]; then
+            EMOJI=":white_check_mark:"
+            MESSAGE="Salesforce → Zoom contact sync succeeded"
+          else
+            EMOJI=":x:"
+            MESSAGE="Salesforce → Zoom contact sync failed"
+          fi
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"$EMOJI $MESSAGE\n<$RUN_URL|View run logs>\"}" \
+            "$SLACK_WEBHOOK_URL"
