@@ -2,7 +2,7 @@ name: Sync Salesforce contacts to Zoom
 
 on:
   schedule:
-    - cron: "0 8 * * *"
+    - cron: "0 13 * * *"
   workflow_dispatch:
 
 env:
@@ -25,6 +25,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run sync
+        id: sync
         env:
           ZOOM_ACCOUNT_ID: ${{ secrets.ZOOM_ACCOUNT_ID }}
           ZOOM_CLIENT_ID: ${{ secrets.ZOOM_CLIENT_ID }}
@@ -34,3 +35,26 @@ jobs:
           SALESFORCE_TOKEN: ${{ secrets.SALESFORCE_TOKEN }}
           SALESFORCE_REPORT_ID: ${{ secrets.SALESFORCE_REPORT_ID }}
         run: python sync.py
+
+      - name: Notify Slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ADDED: ${{ steps.sync.outputs.added_count }}
+          FAILED: ${{ steps.sync.outputs.failed_count }}
+          ALREADY_EXISTS: ${{ steps.sync.outputs.already_exists_count }}
+          INVALID_PHONE: ${{ steps.sync.outputs.invalid_phone_count }}
+        run: |
+          if [ "$STATUS" = "success" ]; then
+            EMOJI=":white_check_mark:"
+            HEADLINE="Salesforce → Zoom contact sync succeeded"
+          else
+            EMOJI=":x:"
+            HEADLINE="Salesforce → Zoom contact sync failed"
+          fi
+          TEXT="$EMOJI $HEADLINE\n• Added: ${ADDED:-0}\n• Failed: ${FAILED:-0}\n• Skipped (already exists): ${ALREADY_EXISTS:-0}\n• Skipped (invalid phone): ${INVALID_PHONE:-0}\n<$RUN_URL|View run logs>"
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"$TEXT\"}" \
+            "$SLACK_WEBHOOK_URL"

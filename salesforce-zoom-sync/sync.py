@@ -125,6 +125,9 @@ def set_external_contacts(limit=1000):
     }
 
     results = []
+    failures = []
+    invalid_phone_count = 0
+    already_exists_count = 0
     rows = get_salesforce_report_rows()
     for i, row in enumerate(rows):
         if i >= limit:
@@ -140,9 +143,11 @@ def set_external_contacts(limit=1000):
 
         if not phone:
             print(f"Skipping {name}: INVALID phone '{raw_phone}'")
+            invalid_phone_count += 1
             continue
         elif phone in currentExternalPhoneNumbers:
             print(f"Skipping {name}: already exists '{raw_phone}'")
+            already_exists_count += 1
             continue
 
         payload = {
@@ -168,8 +173,14 @@ def set_external_contacts(limit=1000):
             sys.exit("***** TOO MANY REQUESTS - got rate-limited response code 429")
         else:
             print(f"Failed for {name}: {response.status_code} {response.text}")
+            failures.append({"name": name, "status": response.status_code, "error": response.text})
 
-    return results
+    return {
+        "added": results,
+        "failed": failures,
+        "invalid_phone_count": invalid_phone_count,
+        "already_exists_count": already_exists_count,
+    }
 
 if __name__ == "__main__":
     if testMode:
@@ -177,12 +188,28 @@ if __name__ == "__main__":
     else:
         print("[PROD] !!!!!!!!! STARTING SCRIPT IN PRODUCTION MODE... !!!!!!!!!")
 
-    contacts = set_external_contacts()
+    summary = set_external_contacts()
+    added = summary["added"]
+    failed = summary["failed"]
 
     if testMode:
         print("[TEST] SCRIPT FINISHED")
     else:
         print("[PROD] !!!!!!!!! FINISHED UPDATING CONTACTS !!!!!!!!!")
-        print(f"[PROD] {len(contacts)} contacts updated ----------------------")
+        print(f"[PROD] Added: {len(added)}")
+        print(f"[PROD] Failed: {len(failed)}")
+        print(f"[PROD] Skipped (already exists): {summary['already_exists_count']}")
+        print(f"[PROD] Skipped (invalid phone): {summary['invalid_phone_count']}")
 
-    pprint.pprint(contacts)
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if github_output:
+        with open(github_output, "a") as f:
+            f.write(f"added_count={len(added)}\n")
+            f.write(f"failed_count={len(failed)}\n")
+            f.write(f"already_exists_count={summary['already_exists_count']}\n")
+            f.write(f"invalid_phone_count={summary['invalid_phone_count']}\n")
+
+    pprint.pprint(added)
+    if failed:
+        print("\nFailures:")
+        pprint.pprint(failed)
