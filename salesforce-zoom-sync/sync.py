@@ -255,6 +255,9 @@ if __name__ == "__main__":
     if deleted:
         print("\nDeleted:")
         pprint.pprint(deleted)
-    if failed or delete_failures:
-        print("\nFailures:")
-        pprint.pprint(failed + delete_failures)
+    if failed:
+        print("\nFailed additions:")
+        pprint.pprint(failed)
+    if delete_failures:
+        print("\nFailed deletions:")
+        pprint.pprint(delete_failures)
