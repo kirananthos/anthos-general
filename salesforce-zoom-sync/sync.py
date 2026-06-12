@@ -18,7 +18,7 @@ ZOOM_CLIENT_ID = os.environ["ZOOM_CLIENT_ID"]
 ZOOM_CLIENT_SECRET = os.environ["ZOOM_CLIENT_SECRET"]
 ZOOM_EXTERNAL_CONTACTS_URL = "https://api.zoom.us/v2/phone/external_contacts"
 
-TEST_MODE = True
+TEST_MODE = False
 MODE = "TEST" if TEST_MODE else "PROD"
 
 def get_zoom_token():
@@ -240,12 +240,12 @@ if __name__ == "__main__":
     delete_failures = summary["delete_failures"]
 
     print(f"\n[{MODE}] Sync complete")
-    print(f"[{MODE}]   Added:                  {len(added)}")
-    print(f"[{MODE}]   Deleted:                {len(deleted)}")
-    print(f"[{MODE}]   Failed (add):           {len(add_failures)}")
-    print(f"[{MODE}]   Failed (delete):        {len(delete_failures)}")
-    print(f"[{MODE}]   Skipped (exists):       {summary['skipped_already_exists']}")
-    print(f"[{MODE}]   Skipped (no phone):     {summary['skipped_no_phone']}")
+    print(f"[{MODE}]   Added:                      {len(added)}")
+    print(f"[{MODE}]   Deleted:                    {len(deleted)}")
+    print(f"[{MODE}]   Failed add:                 {len(add_failures)}")
+    print(f"[{MODE}]   Failed delete:              {len(delete_failures)}")
+    print(f"[{MODE}]   Skipped add (exists):       {summary['skipped_already_exists']}")
+    print(f"[{MODE}]   Skipped delete (no phone):  {summary['skipped_no_phone']}")
 
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
