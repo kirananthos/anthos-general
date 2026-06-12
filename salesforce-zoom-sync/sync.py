@@ -132,10 +132,16 @@ def set_external_contacts(limit=1000):
     rows = get_salesforce_report_rows()
 
     sf_normalized_phones = set()
+    sf_names_no_phone = set()
     for row in rows:
+        first = row.get("Primary Contact: First Name", "").strip().capitalize()
+        last = row.get("Primary Contact: Last Name", "").strip().capitalize()
+        name = f"{first} {last}".strip()
         phone = normalize_phone(row.get("Phone", "").strip())
         if phone:
             sf_normalized_phones.add(phone)
+        else:
+            sf_names_no_phone.add(name.lower())
 
     # Delete contacts not in SF
     deleted = []
@@ -143,6 +149,9 @@ def set_external_contacts(limit=1000):
     for contact in allExistingContacts:
         contact_phones = set(contact['phones'])
         if not contact_phones.intersection(sf_normalized_phones):
+            if contact['name'].lower() in sf_names_no_phone:
+                print(f"Skipping delete for {contact['name']}: in SF but no phone")
+                continue
             if testMode:
                 print(f"[TEST] Would delete: {contact['name']} ({contact['phones']})")
             else:
