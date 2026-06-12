@@ -16,12 +16,10 @@ SALESFORCE_REPORT_ID = os.environ["SALESFORCE_REPORT_ID"]
 ZOOM_ACCOUNT_ID = os.environ["ZOOM_ACCOUNT_ID"]
 ZOOM_CLIENT_ID = os.environ["ZOOM_CLIENT_ID"]
 ZOOM_CLIENT_SECRET = os.environ["ZOOM_CLIENT_SECRET"]
-
 ZOOM_EXTERNAL_CONTACTS_URL = "https://api.zoom.us/v2/phone/external_contacts"
 
-TEST_MODE = False
+TEST_MODE = True
 MODE = "TEST" if TEST_MODE else "PROD"
-
 
 def get_zoom_token():
     print("Getting Zoom access token...")
