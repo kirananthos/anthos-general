@@ -144,30 +144,46 @@ def set_external_contacts(limit=1000):
             sf_names_no_phone.add(name.lower())
 
     # Delete contacts not in SF
+    contacts_by_name = {}
+    for contact in allExistingContacts:
+        contacts_by_name.setdefault(contact['name'].lower(), []).append(contact)
+
     deleted = []
     delete_failures = []
+    deleted_ids = set()
+
+    def delete_contact(c):
+        if c['id'] in deleted_ids:
+            return
+        if testMode:
+            print(f"[TEST] Would delete: {c['name']} ({c['phones']})")
+        else:
+            print(f"[PROD] Deleting: {c['name']} ({c['phones']})")
+            response = requests.delete(
+                f"https://api.zoom.us/v2/phone/external_contacts/{c['id']}",
+                headers=headers,
+            )
+            if response.status_code == 204:
+                print(f"[PROD] Deleted: {c['name']}")
+                deleted.append(c)
+                deleted_ids.add(c['id'])
+            elif response.status_code == 429:
+                sys.exit("***** TOO MANY REQUESTS - got rate-limited response code 429")
+            else:
+                print(f"Failed to delete {c['name']}: {response.status_code} {c['phones']} {response.text}")
+                delete_failures.append(c)
+            deleted_ids.add(c['id'])
+
     for contact in allExistingContacts:
+        if contact['id'] in deleted_ids:
+            continue
         contact_phones = set(contact['phones'])
         if not contact_phones.intersection(sf_normalized_phones):
             if contact['name'].lower() in sf_names_no_phone:
                 print(f"Skipping delete for {contact['name']}: in SF but no phone")
                 continue
-            if testMode:
-                print(f"[TEST] Would delete: {contact['name']} ({contact['phones']})")
-            else:
-                print(f"[PROD] Deleting: {contact['name']} ({contact['phones']})")
-                response = requests.delete(
-                    f"https://api.zoom.us/v2/phone/external_contacts/{contact['id']}",
-                    headers=headers,
-                )
-                if response.status_code == 204:
-                    print(f"[PROD] Deleted: {contact['name']}")
-                    deleted.append(contact)
-                elif response.status_code == 429:
-                    sys.exit("***** TOO MANY REQUESTS - got rate-limited response code 429")
-                else:
-                    print(f"Failed to delete {contact['name']}: {response.status_code} {response.text}")
-                    delete_failures.append(contact)
+            for c in contacts_by_name.get(contact['name'].lower(), []):
+                delete_contact(c)
 
     results = []
     failures = []
