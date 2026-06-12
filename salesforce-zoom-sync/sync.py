@@ -19,8 +19,6 @@ CLIENT_SECRET = os.environ["ZOOM_CLIENT_SECRET"]
 
 testMode = False
 
-# TODO: IMPLEMENT DELETION OF WITHDRAWN/GRADUATED PARTICIPANTS
-
 def get_access_token():
     print("GETTING ACCESS TOKEN...")
     url = f"https://zoom.us/oauth/token?grant_type=account_credentials&account_id={ACCOUNT_ID}"
@@ -98,6 +96,7 @@ def set_external_contacts(limit=1000):
     accessToken = get_access_token()
     nextPageToken = ""
     shouldFetchMoreExternalContacts = True
+    allExistingContacts = []
     currentExternalPhoneNumbers = set()
 
     while shouldFetchMoreExternalContacts:
@@ -112,10 +111,16 @@ def set_external_contacts(limit=1000):
         print(f"Collecting external contacts: adding {len(currentExternalContacts)} numbers...")
 
         for external_contact in currentExternalContacts:
-            for phone_number in external_contact['phone_numbers']:
+            phones = external_contact.get('phone_numbers', [])
+            allExistingContacts.append({
+                "id": external_contact['external_contact_id'],
+                "name": external_contact.get('name', ''),
+                "phones": phones,
+            })
+            for phone_number in phones:
                 currentExternalPhoneNumbers.add(phone_number)
 
-    print(f"{len(currentExternalPhoneNumbers)} total external contacts currently exist...")
+    print(f"{len(allExistingContacts)} total external contacts currently exist...")
 
     url = "https://api.zoom.us/v2/phone/external_contacts"
 
@@ -124,11 +129,41 @@ def set_external_contacts(limit=1000):
         "Content-Type": "application/json",
     }
 
+    rows = get_salesforce_report_rows()
+
+    sf_normalized_phones = set()
+    for row in rows:
+        phone = normalize_phone(row.get("Phone", "").strip())
+        if phone:
+            sf_normalized_phones.add(phone)
+
+    # Delete contacts not in SF
+    deleted = []
+    delete_failures = []
+    for contact in allExistingContacts:
+        contact_phones = set(contact['phones'])
+        if not contact_phones.intersection(sf_normalized_phones):
+            if testMode:
+                print(f"[TEST] Would delete: {contact['name']} ({contact['phones']})")
+            else:
+                print(f"[PROD] Deleting: {contact['name']} ({contact['phones']})")
+                response = requests.delete(
+                    f"https://api.zoom.us/v2/phone/external_contacts/{contact['id']}",
+                    headers=headers,
+                )
+                if response.status_code == 204:
+                    print(f"[PROD] Deleted: {contact['name']}")
+                    deleted.append(contact)
+                elif response.status_code == 429:
+                    sys.exit("***** TOO MANY REQUESTS - got rate-limited response code 429")
+                else:
+                    print(f"Failed to delete {contact['name']}: {response.status_code} {response.text}")
+                    delete_failures.append(contact)
+
     results = []
     failures = []
     invalid_phone_count = 0
     already_exists_count = 0
-    rows = get_salesforce_report_rows()
     for i, row in enumerate(rows):
         if i >= limit:
             break
@@ -178,6 +213,8 @@ def set_external_contacts(limit=1000):
     return {
         "added": results,
         "failed": failures,
+        "deleted": deleted,
+        "delete_failures": delete_failures,
         "invalid_phone_count": invalid_phone_count,
         "already_exists_count": already_exists_count,
     }
@@ -191,13 +228,17 @@ if __name__ == "__main__":
     summary = set_external_contacts()
     added = summary["added"]
     failed = summary["failed"]
+    deleted = summary["deleted"]
+    delete_failures = summary["delete_failures"]
 
     if testMode:
         print("[TEST] SCRIPT FINISHED")
     else:
         print("[PROD] !!!!!!!!! FINISHED UPDATING CONTACTS !!!!!!!!!")
         print(f"[PROD] Added: {len(added)}")
-        print(f"[PROD] Failed: {len(failed)}")
+        print(f"[PROD] Deleted: {len(deleted)}")
+        print(f"[PROD] Failed (add): {len(failed)}")
+        print(f"[PROD] Failed (delete): {len(delete_failures)}")
         print(f"[PROD] Skipped (already exists): {summary['already_exists_count']}")
         print(f"[PROD] Skipped (invalid phone): {summary['invalid_phone_count']}")
 
@@ -205,11 +246,15 @@ if __name__ == "__main__":
     if github_output:
         with open(github_output, "a") as f:
             f.write(f"added_count={len(added)}\n")
-            f.write(f"failed_count={len(failed)}\n")
+            f.write(f"failed_count={len(failed) + len(delete_failures)}\n")
+            f.write(f"deleted_count={len(deleted)}\n")
             f.write(f"already_exists_count={summary['already_exists_count']}\n")
             f.write(f"invalid_phone_count={summary['invalid_phone_count']}\n")
 
     pprint.pprint(added)
-    if failed:
+    if deleted:
+        print("\nDeleted:")
+        pprint.pprint(deleted)
+    if failed or delete_failures:
         print("\nFailures:")
-        pprint.pprint(failed)
+        pprint.pprint(failed + delete_failures)

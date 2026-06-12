@@ -44,6 +44,7 @@ jobs:
           STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ADDED: ${{ steps.sync.outputs.added_count }}
+          DELETED: ${{ steps.sync.outputs.deleted_count }}
           FAILED: ${{ steps.sync.outputs.failed_count }}
           ALREADY_EXISTS: ${{ steps.sync.outputs.already_exists_count }}
           INVALID_PHONE: ${{ steps.sync.outputs.invalid_phone_count }}
@@ -55,7 +56,7 @@ jobs:
             EMOJI=":x:"
             HEADLINE="Salesforce → Zoom contact sync failed"
           fi
-          TEXT="<@${STAFF_SLACK_USER_ID}> $EMOJI $HEADLINE\n• Added: ${ADDED:-0}\n• Failed: ${FAILED:-0}\n• Skipped (already exists): ${ALREADY_EXISTS:-0}\n• Skipped (invalid phone): ${INVALID_PHONE:-0}\n<$RUN_URL|View run logs>"
+          TEXT="<@${STAFF_SLACK_USER_ID}> $EMOJI $HEADLINE\n• Added: ${ADDED:-0}\n• Deleted: ${DELETED:-0}\n• Failed: ${FAILED:-0}\n• Skipped (already exists): ${ALREADY_EXISTS:-0}\n• Skipped (invalid phone): ${INVALID_PHONE:-0}\n<$RUN_URL|View run logs>"
           curl -X POST -H 'Content-type: application/json' \
             --data "{\"text\":\"$TEXT\"}" \
             "$SLACK_WEBHOOK_URL"
