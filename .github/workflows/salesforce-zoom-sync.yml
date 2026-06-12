@@ -46,8 +46,8 @@ jobs:
           ADDED: ${{ steps.sync.outputs.added_count }}
           DELETED: ${{ steps.sync.outputs.deleted_count }}
           FAILED: ${{ steps.sync.outputs.failed_count }}
-          ALREADY_EXISTS: ${{ steps.sync.outputs.already_exists_count }}
-          INVALID_PHONE: ${{ steps.sync.outputs.invalid_phone_count }}
+          ALREADY_EXISTS: ${{ steps.sync.outputs.skipped_already_exists }}
+          INVALID_PHONE: ${{ steps.sync.outputs.skipped_no_phone }}
         run: |
           if [ "$STATUS" = "success" ]; then
             EMOJI=":white_check_mark:"

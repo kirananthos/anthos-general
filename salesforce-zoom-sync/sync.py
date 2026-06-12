@@ -13,45 +13,44 @@ SALESFORCE_PASSWORD = os.environ["SALESFORCE_PASSWORD"]
 SALESFORCE_TOKEN = os.environ["SALESFORCE_TOKEN"]
 SALESFORCE_REPORT_ID = os.environ["SALESFORCE_REPORT_ID"]
 
-ACCOUNT_ID = os.environ["ZOOM_ACCOUNT_ID"]
-CLIENT_ID = os.environ["ZOOM_CLIENT_ID"]
-CLIENT_SECRET = os.environ["ZOOM_CLIENT_SECRET"]
+ZOOM_ACCOUNT_ID = os.environ["ZOOM_ACCOUNT_ID"]
+ZOOM_CLIENT_ID = os.environ["ZOOM_CLIENT_ID"]
+ZOOM_CLIENT_SECRET = os.environ["ZOOM_CLIENT_SECRET"]
+ZOOM_EXTERNAL_CONTACTS_URL = "https://api.zoom.us/v2/phone/external_contacts"
 
-testMode = True
+TEST_MODE = True
+MODE = "TEST" if TEST_MODE else "PROD"
 
-def get_access_token():
-    print("GETTING ACCESS TOKEN...")
-    url = f"https://zoom.us/oauth/token?grant_type=account_credentials&account_id={ACCOUNT_ID}"
-    response = requests.post(url, auth=(CLIENT_ID, CLIENT_SECRET))
-    return response.json()['access_token']
+def get_zoom_token():
+    print("Getting Zoom access token...")
+    response = requests.post(
+        f"https://zoom.us/oauth/token?grant_type=account_credentials&account_id={ZOOM_ACCOUNT_ID}",
+        auth=(ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET),
+    )
+    return response.json()["access_token"]
 
-def get_external_contacts(access_token = "", nextPageToken = ""):
 
-    if access_token:
-        token = access_token
-    else:
-        token = get_access_token()
-
-    url = f"https://api.zoom.us/v2/phone/external_contacts"
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-
-    params = {}
-
-    if nextPageToken:
-        params['next_page_token'] = nextPageToken
-
-    response = requests.get(url, headers=headers, params=params)
+def fetch_contacts_page(token, next_page_token=""):
+    params = {"next_page_token": next_page_token} if next_page_token else {}
+    response = requests.get(
+        ZOOM_EXTERNAL_CONTACTS_URL,
+        headers=zoom_headers(token),
+        params=params,
+    )
     if response.status_code == 200:
-        print("External contacts fetched successfully!")
         return response.json()
     elif response.status_code == 429:
-        sys.exit("***** TOO MANY REQUESTS - got rate-limited response code 429")
+        sys.exit("Rate limited by Zoom API (429). Try again later.")
     else:
-        return f"Error: {response.status_code}, {response.text}"
+        sys.exit(f"Failed to fetch contacts: {response.status_code} {response.text}")
+
+
+def zoom_headers(token):
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
 
 def normalize_phone(phone):
     digits = re.sub(r"\D", "", phone)
@@ -61,13 +60,23 @@ def normalize_phone(phone):
         return f"+{digits}"
     return None
 
-def parse_email(email):
-    if email.endswith(".org"):
-        return ""
-    return email
 
-def get_salesforce_report_rows():
-    print("FETCHING SALESFORCE REPORT...")
+def filter_org_email(email):
+    return "" if email.endswith(".org") else email
+
+
+def parse_sf_row(row):
+    first = row.get("Primary Contact: First Name", "").strip().capitalize()
+    last = row.get("Primary Contact: Last Name", "").strip().capitalize()
+    return {
+        "name": f"{first} {last}".strip(),
+        "phone": normalize_phone(row.get("Phone", "").strip()),
+        "email": filter_org_email(row.get("Primary Contact: Email", "").strip()),
+    }
+
+
+def get_salesforce_rows():
+    print("Fetching Salesforce report...")
     sf = Salesforce(
         username=SALESFORCE_USERNAME,
         password=SALESFORCE_PASSWORD,
@@ -86,203 +95,176 @@ def get_salesforce_report_rows():
             continue
         for row_data in group.get("rows", []):
             cells = row_data["dataCells"]
-            row_dict = {column_labels[i]: cells[i].get("label", "") for i in range(len(columns))}
-            rows.append(row_dict)
+            rows.append({column_labels[i]: cells[i].get("label", "") for i in range(len(columns))})
 
     print(f"Fetched {len(rows)} rows from Salesforce")
     return rows
 
-def set_external_contacts(limit=1000):
-    accessToken = get_access_token()
-    nextPageToken = ""
-    shouldFetchMoreExternalContacts = True
-    allExistingContacts = []
-    currentExternalPhoneNumbers = set()
 
-    while shouldFetchMoreExternalContacts:
+def sync_contacts():
+    token = get_zoom_token()
 
-        externalContactsRawData = get_external_contacts(accessToken, nextPageToken)
-        currentExternalContacts = externalContactsRawData['external_contacts']
+    # Fetch all existing Zoom external contacts
+    existing_contacts = []
+    existing_phones = set()
+    next_page_token = ""
 
-        nextPageToken = externalContactsRawData['next_page_token']
-        if nextPageToken == "":
-            shouldFetchMoreExternalContacts = False
+    while True:
+        page = fetch_contacts_page(token, next_page_token)
+        page_contacts = page["external_contacts"]
+        print(f"Fetched page of {len(page_contacts)} existing contacts...")
 
-        print(f"Collecting external contacts: adding {len(currentExternalContacts)} numbers...")
-
-        for external_contact in currentExternalContacts:
-            phones = external_contact.get('phone_numbers', [])
-            allExistingContacts.append({
-                "id": external_contact['external_contact_id'],
-                "name": external_contact.get('name', ''),
+        for contact in page_contacts:
+            phones = contact.get("phone_numbers", [])
+            existing_contacts.append({
+                "id": contact["external_contact_id"],
+                "name": contact.get("name", ""),
                 "phones": phones,
             })
-            for phone_number in phones:
-                currentExternalPhoneNumbers.add(phone_number)
+            existing_phones.update(phones)
 
-    print(f"{len(allExistingContacts)} total external contacts currently exist...")
+        next_page_token = page["next_page_token"]
+        if not next_page_token:
+            break
 
-    url = "https://api.zoom.us/v2/phone/external_contacts"
+    print(f"{len(existing_contacts)} total existing Zoom contacts")
 
-    headers = {
-        "Authorization": f"Bearer {accessToken}",
-        "Content-Type": "application/json",
-    }
+    # Parse Salesforce rows
+    sf_rows = get_salesforce_rows()
+    sf_phones = set()
+    sf_names_missing_phone = set()
 
-    rows = get_salesforce_report_rows()
-
-    sf_normalized_phones = set()
-    sf_names_no_phone = set()
-    for row in rows:
-        first = row.get("Primary Contact: First Name", "").strip().capitalize()
-        last = row.get("Primary Contact: Last Name", "").strip().capitalize()
-        name = f"{first} {last}".strip()
-        phone = normalize_phone(row.get("Phone", "").strip())
-        if phone:
-            sf_normalized_phones.add(phone)
+    for row in sf_rows:
+        parsed = parse_sf_row(row)
+        if parsed["phone"]:
+            sf_phones.add(parsed["phone"])
         else:
-            sf_names_no_phone.add(name.lower())
+            sf_names_missing_phone.add(parsed["name"].lower())
 
-    # Delete contacts not in SF
+    # Build name → contacts index for bulk deletion by name
     contacts_by_name = {}
-    for contact in allExistingContacts:
-        contacts_by_name.setdefault(contact['name'].lower(), []).append(contact)
+    for contact in existing_contacts:
+        contacts_by_name.setdefault(contact["name"].lower(), []).append(contact)
 
+    # Delete contacts no longer in Salesforce
     deleted = []
     delete_failures = []
     deleted_ids = set()
 
-    def delete_contact(c):
-        if c['id'] in deleted_ids:
+    def delete_contact(contact):
+        if contact["id"] in deleted_ids:
             return
-        if testMode:
-            print(f"[TEST] Would delete: {c['name']} ({c['phones']})")
+        deleted_ids.add(contact["id"])
+        if TEST_MODE:
+            print(f"[{MODE}] Would delete: {contact['name']} ({contact['phones']})")
+            return
+        response = requests.delete(
+            f"{ZOOM_EXTERNAL_CONTACTS_URL}/{contact['id']}",
+            headers=zoom_headers(token),
+        )
+        if response.status_code == 204:
+            print(f"[{MODE}] Deleted: {contact['name']} ({contact['phones']})")
+            deleted.append(contact)
+        elif response.status_code == 429:
+            sys.exit("Rate limited by Zoom API (429). Try again later.")
         else:
-            print(f"[PROD] Deleting: {c['name']} ({c['phones']})")
-            response = requests.delete(
-                f"https://api.zoom.us/v2/phone/external_contacts/{c['id']}",
-                headers=headers,
-            )
-            if response.status_code == 204:
-                print(f"[PROD] Deleted: {c['name']}")
-                deleted.append(c)
-                deleted_ids.add(c['id'])
-            elif response.status_code == 429:
-                sys.exit("***** TOO MANY REQUESTS - got rate-limited response code 429")
-            else:
-                print(f"Failed to delete {c['name']}: {response.status_code} {c['phones']} {response.text}")
-                delete_failures.append(c)
-            deleted_ids.add(c['id'])
+            print(f"[{MODE}] Failed to delete {contact['name']}: {response.status_code} {response.text}")
+            delete_failures.append(contact)
 
-    for contact in allExistingContacts:
-        if contact['id'] in deleted_ids:
+    for contact in existing_contacts:
+        if contact["id"] in deleted_ids:
             continue
-        contact_phones = set(contact['phones'])
-        if not contact_phones.intersection(sf_normalized_phones):
-            if contact['name'].lower() in sf_names_no_phone:
-                print(f"Skipping delete for {contact['name']}: in SF but no phone")
-                continue
-            for c in contacts_by_name.get(contact['name'].lower(), []):
-                delete_contact(c)
+        if set(contact["phones"]).intersection(sf_phones):
+            continue
+        if contact["name"].lower() in sf_names_missing_phone:
+            print(f"Skipping delete for {contact['name']}: in Salesforce but no phone on file")
+            continue
+        for c in contacts_by_name.get(contact["name"].lower(), []):
+            delete_contact(c)
 
-    results = []
-    failures = []
-    invalid_phone_count = 0
-    already_exists_count = 0
-    for i, row in enumerate(rows):
-        if i >= limit:
-            break
+    # Add contacts from Salesforce not yet in Zoom
+    added = []
+    add_failures = []
+    skipped_no_phone = 0
+    skipped_already_exists = 0
 
-        first_name = row.get("Primary Contact: First Name", "").strip().capitalize()
-        last_name = row.get("Primary Contact: Last Name", "").strip().capitalize()
-        email = parse_email(row.get("Primary Contact: Email", "").strip())
-        raw_phone = row.get("Phone", "").strip()
-
-        name = f"{first_name} {last_name}".strip()
-        phone = normalize_phone(raw_phone)
+    for row in sf_rows:
+        parsed = parse_sf_row(row)
+        name, phone, email = parsed["name"], parsed["phone"], parsed["email"]
 
         if not phone:
-            print(f"Skipping {name}: INVALID phone '{raw_phone}'")
-            invalid_phone_count += 1
+            print(f"Skipping {name}: no valid phone number")
+            skipped_no_phone += 1
             continue
-        elif phone in currentExternalPhoneNumbers:
-            print(f"Skipping {name}: already exists '{raw_phone}'")
-            already_exists_count += 1
+        if phone in existing_phones:
+            print(f"Skipping {name}: already exists in Zoom")
+            skipped_already_exists += 1
             continue
 
-        payload = {
-            "name": name,
-            "phone_numbers": [phone],
-        }
+        payload = {"name": name, "phone_numbers": [phone]}
         if email:
             payload["email"] = email
 
-        if testMode:
-            print(f"[TEST] Would add: {payload}")
+        if TEST_MODE:
+            print(f"[{MODE}] Would add: {payload}")
             continue
 
-        print(f"[PROD] Adding: {payload}")
-
-        response = requests.post(url, headers=headers, json=payload)
+        response = requests.post(ZOOM_EXTERNAL_CONTACTS_URL, headers=zoom_headers(token), json=payload)
 
         if response.status_code == 201:
-            if email: print(f"[PROD] Added: {name} ({phone}, email: {email})")
-            else: print(f"[PROD] Added: {name} ({phone})")
-            results.append(response.json())
+            print(f"[{MODE}] Added: {name} ({phone})" + (f", email: {email}" if email else ""))
+            added.append(response.json())
         elif response.status_code == 429:
-            sys.exit("***** TOO MANY REQUESTS - got rate-limited response code 429")
+            sys.exit("Rate limited by Zoom API (429). Try again later.")
         else:
-            print(f"Failed for {name}: {response.status_code} {response.text}")
-            failures.append({"name": name, "status": response.status_code, "error": response.text})
+            print(f"[{MODE}] Failed to add {name}: {response.status_code} {response.text}")
+            add_failures.append({"name": name, "status": response.status_code, "error": response.text})
 
     return {
-        "added": results,
-        "failed": failures,
+        "added": added,
+        "add_failures": add_failures,
         "deleted": deleted,
         "delete_failures": delete_failures,
-        "invalid_phone_count": invalid_phone_count,
-        "already_exists_count": already_exists_count,
+        "skipped_no_phone": skipped_no_phone,
+        "skipped_already_exists": skipped_already_exists,
     }
 
-if __name__ == "__main__":
-    if testMode:
-        print("[TEST] STARTING SCRIPT IN TEST MODE...")
-    else:
-        print("[PROD] !!!!!!!!! STARTING SCRIPT IN PRODUCTION MODE... !!!!!!!!!")
 
-    summary = set_external_contacts()
+if __name__ == "__main__":
+    print(f"[{MODE}] Starting Salesforce → Zoom contact sync...")
+
+    summary = sync_contacts()
     added = summary["added"]
-    failed = summary["failed"]
+    add_failures = summary["add_failures"]
     deleted = summary["deleted"]
     delete_failures = summary["delete_failures"]
 
-    if testMode:
-        print("[TEST] SCRIPT FINISHED")
-    else:
-        print("[PROD] !!!!!!!!! FINISHED UPDATING CONTACTS !!!!!!!!!")
-        print(f"[PROD] Added: {len(added)}")
-        print(f"[PROD] Deleted: {len(deleted)}")
-        print(f"[PROD] Failed (add): {len(failed)}")
-        print(f"[PROD] Failed (delete): {len(delete_failures)}")
-        print(f"[PROD] Skipped (already exists): {summary['already_exists_count']}")
-        print(f"[PROD] Skipped (invalid phone): {summary['invalid_phone_count']}")
+    print(f"\n[{MODE}] Sync complete")
+    print(f"[{MODE}]   Added:                  {len(added)}")
+    print(f"[{MODE}]   Deleted:                {len(deleted)}")
+    print(f"[{MODE}]   Failed (add):           {len(add_failures)}")
+    print(f"[{MODE}]   Failed (delete):        {len(delete_failures)}")
+    print(f"[{MODE}]   Skipped (exists):       {summary['skipped_already_exists']}")
+    print(f"[{MODE}]   Skipped (no phone):     {summary['skipped_no_phone']}")
 
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a") as f:
             f.write(f"added_count={len(added)}\n")
-            f.write(f"failed_count={len(failed) + len(delete_failures)}\n")
             f.write(f"deleted_count={len(deleted)}\n")
-            f.write(f"already_exists_count={summary['already_exists_count']}\n")
-            f.write(f"invalid_phone_count={summary['invalid_phone_count']}\n")
+            f.write(f"failed_count={len(add_failures) + len(delete_failures)}\n")
+            f.write(f"skipped_already_exists={summary['skipped_already_exists']}\n")
+            f.write(f"skipped_no_phone={summary['skipped_no_phone']}\n")
 
-    pprint.pprint(added)
+    if added:
+        print("\nAdded:")
+        pprint.pprint(added)
     if deleted:
         print("\nDeleted:")
         pprint.pprint(deleted)
-    if failed:
+    if add_failures:
         print("\nFailed additions:")
-        pprint.pprint(failed)
+        pprint.pprint(add_failures)
     if delete_failures:
         print("\nFailed deletions:")
         pprint.pprint(delete_failures)
