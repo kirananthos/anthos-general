@@ -17,7 +17,7 @@ ACCOUNT_ID = os.environ["ZOOM_ACCOUNT_ID"]
 CLIENT_ID = os.environ["ZOOM_CLIENT_ID"]
 CLIENT_SECRET = os.environ["ZOOM_CLIENT_SECRET"]
 
-testMode = False
+testMode = True
 
 def get_access_token():
     print("GETTING ACCESS TOKEN...")
