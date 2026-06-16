@@ -17,6 +17,7 @@ The script runs automatically every day at **8am ET** via GitHub Actions. It can
 ---
 
 ## Project structure
+```
 salesforce-zoom-sync/
 ├── sync.py # Main sync script
 ├── requirements.txt # Python dependencies
@@ -24,7 +25,7 @@ salesforce-zoom-sync/
 
 .github/workflows/
 └── salesforce-zoom-sync.yml # GitHub Actions workflow
-
+```
 
 ---
 
