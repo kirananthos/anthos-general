@@ -28,6 +28,8 @@ def get_zoom_token():
         f"https://zoom.us/oauth/token?grant_type=account_credentials&account_id={ZOOM_ACCOUNT_ID}",
         auth=(ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET),
     )
+    print(response.status_code)
+    print(response.text)
     return response.json()["access_token"]
 
 
