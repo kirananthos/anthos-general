@@ -8,9 +8,10 @@ from simple_salesforce import Salesforce
 
 load_dotenv()
 
-SALESFORCE_USERNAME = os.environ["SALESFORCE_USERNAME"]
-SALESFORCE_PASSWORD = os.environ["SALESFORCE_PASSWORD"]
-SALESFORCE_TOKEN = os.environ["SALESFORCE_TOKEN"]
+# --- Salesforce OAuth (Connected App, Client Credentials Flow) ---
+SALESFORCE_CONSUMER_KEY = os.environ["SALESFORCE_CONSUMER_KEY"]
+SALESFORCE_CONSUMER_SECRET = os.environ["SALESFORCE_CONSUMER_SECRET"]
+SALESFORCE_DOMAIN = os.environ["SALESFORCE_DOMAIN"] 
 SALESFORCE_REPORT_ID = os.environ["SALESFORCE_REPORT_ID"]
 
 ZOOM_ACCOUNT_ID = os.environ["ZOOM_ACCOUNT_ID"]
@@ -75,13 +76,26 @@ def parse_sf_row(row):
     }
 
 
+def get_salesforce_token():
+    print("Getting Salesforce access token...")
+    response = requests.post(
+        f"https://{SALESFORCE_DOMAIN}/services/oauth2/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": SALESFORCE_CONSUMER_KEY,
+            "client_secret": SALESFORCE_CONSUMER_SECRET,
+        },
+    )
+    if response.status_code != 200:
+        sys.exit(f"Failed to get Salesforce token: {response.status_code} {response.text}")
+    data = response.json()
+    return data["access_token"], data["instance_url"]
+
+
 def get_salesforce_rows():
     print("Fetching Salesforce report...")
-    sf = Salesforce(
-        username=SALESFORCE_USERNAME,
-        password=SALESFORCE_PASSWORD,
-        security_token=SALESFORCE_TOKEN,
-    )
+    access_token, instance_url = get_salesforce_token()
+    sf = Salesforce(instance_url=instance_url, session_id=access_token)
 
     report = sf.restful(f"analytics/reports/{SALESFORCE_REPORT_ID}?includeDetails=true")
 
